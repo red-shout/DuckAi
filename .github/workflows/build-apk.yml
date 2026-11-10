@@ -26,7 +26,7 @@ jobs:
 
       - name: Build Web & Create Android App
         run: |
-          # 1. بیلد پروژه وب (اگر پکیج جاواسکریپت باشد)
+          # 1. بیلد پروژه وب
           if [ -f "package.json" ]; then
             npm install --legacy-peer-deps || npm install --force || true
             export PUBLIC_URL="."
@@ -57,15 +57,45 @@ jobs:
           npx cap init "DuckAi" "com.okyo.duckai" --web-dir www_folder
           npx cap add android
 
-      - name: Optimize Manifest for Xiaomi Pad 7
+      - name: Safe Configure Xiaomi Pad 7 Settings
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
-          # تنظیم حالت افقی و شتاب‌دهنده
-          sed -i 's/android:name=".MainActivity"/android:name=".MainActivity" android:screenOrientation="sensorLandscape" android:hardwareAccelerated="true" android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode" android:resizeableActivity="true"/g' "$MANIFEST"
           
-          # افزودن دسترسی‌ها
-          PERMS='<uses-permission android:name="android.permission.INTERNET" />\n<uses-permission android:name="android.permission.RECORD_AUDIO" />\n<uses-permission android:name="android.permission.CAMERA" />'
-          sed -i "s|<application|$PERMS\n<application android:usesCleartextTraffic=\"true\" android:hardwareAccelerated=\"true\"|g" "$MANIFEST"
+          # تنظیم حالت افقی تبلت در فایل پیکربندی اصلی اندروید (res/values/strings.xml یا مشابه یا مستقیماً در Manifest)
+          python3 -c '
+          import xml.etree.ElementTree as ET
+          ET.register_namespace("android", "http://schemas.android.com/apk/res/android")
+          tree = ET.parse("android/app/src/main/AndroidManifest.xml")
+          root = tree.getroot()
+          
+          # افزودن اینترنت و مجوزها به شکلی کاملا استاندارد
+          ns = {"android": "http://schemas.android.com/apk/res/android"}
+          
+          perms = [
+              "android.permission.INTERNET",
+              "android.permission.RECORD_AUDIO",
+              "android.permission.CAMERA",
+              "android.permission.MODIFY_AUDIO_SETTINGS"
+          ]
+          for p in perms:
+              if not root.findall(f".//uses-permission[@{{http://schemas.android.com/apk/res/android}}name='{p}']"):
+                up = ET.Element("uses-permission", {"{http://schemas.android.com/apk/res/android}name": p})
+                root.insert(0, up)
+                
+          # تنظیمات اپلیکیشن
+          app = root.find("application")
+          if app is not None:
+              app.set("{http://schemas.android.com/apk/res/android}usesCleartextTraffic", "true")
+              app.set("{http://schemas.android.com/apk/res/android}hardwareAccelerated", "true")
+              
+          # تنظیم اکتیویتی برای حالت افقی
+          for activity in root.findall(".//activity"):
+              activity.set("{http://schemas.android.com/apk/res/android}screenOrientation", "sensorLandscape")
+              activity.set("{http://schemas.android.com/apk/res/android}configChanges", "orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode")
+              activity.set("{http://schemas.android.com/apk/res/android}resizeableActivity", "true")
+              
+          tree.write("android/app/src/main/AndroidManifest.xml", encoding="utf-8", xml_declaration=True)
+          '
 
       - name: Compile APK
         run: |
