@@ -1,4 +1,4 @@
-name: Smart Build DuckAi APK (Xiaomi Pad 7 Final)
+name: Simple Build DuckAi APK
 
 on:
   push:
@@ -6,159 +6,75 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-android:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 1. Checkout Code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: 2. Set up JDK 21
+      - name: Set up JDK 21
         uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: 3. Set up Android SDK
-        run: |
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses || true
-
-      - name: 4. Set up Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: 5. Prepare Web & Capacitor Wrapper
+      - name: Build Web & Create Android App
         run: |
-          mkdir -p www_final
+          # 1. بیلد پروژه وب (اگر پکیج جاواسکریپت باشد)
           if [ -f "package.json" ]; then
             npm install --legacy-peer-deps || npm install --force || true
             export PUBLIC_URL="."
             npm run build -- --base=./ || npm run build || true
           fi
 
-          if [ -d "dist" ] && [ "$(ls -A dist)" ]; then cp -r dist/* www_final/;
-          elif [ -d "build" ] && [ "$(ls -A build)" ]; then cp -r build/* www_final/;
-          elif [ -d "out" ] && [ "$(ls -A out)" ]; then cp -r out/* www_final/;
+          # 2. آماده‌سازی پوشه وب
+          mkdir -p www_folder
+          if [ -d "dist" ] && [ "$(ls -A dist)" ]; then cp -r dist/* www_folder/;
+          elif [ -d "build" ] && [ "$(ls -A build)" ]; then cp -r build/* www_folder/;
+          elif [ -d "out" ] && [ "$(ls -A out)" ]; then cp -r out/* www_folder/;
           elif [ -f "index.html" ]; then
-            rsync -av --exclude='node_modules' --exclude='.git' --exclude='.github' ./ www_final/
+            rsync -av --exclude='node_modules' --exclude='.git' --exclude='.github' ./ www_folder/
           else
             FOUND_INDEX=$(find . -maxdepth 3 -name "index.html" | head -n 1)
             if [ -n "$FOUND_INDEX" ]; then
-              cp -r $(dirname "$FOUND_INDEX")/* www_final/
+              cp -r $(dirname "$FOUND_INDEX")/* www_folder/
             fi
           fi
 
-          if [ ! -f "www_final/index.html" ]; then
-            echo "<!DOCTYPE html><html dir='rtl'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'></head><body style='background:#121212;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:sans-serif;'><h2>DuckAi Ready</h2></body></html>" > www_final/index.html
+          if [ ! -f "www_folder/index.html" ]; then
+            echo "<!DOCTYPE html><html dir='rtl'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'></head><body style='background:#121212;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:sans-serif;'><h2>DuckAi Ready</h2></body></html>" > www_folder/index.html
           fi
 
+          # 3. ساختار اندروید با کاپاسیتور
           npm init -y || true
           npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
-          npx cap init "DuckAi" "com.okyo.duckai" --web-dir www_final
+          npx cap init "DuckAi" "com.okyo.duckai" --web-dir www_folder
           npx cap add android
 
-      - name: 6. Configure Xiaomi Pad 7 Settings
+      - name: Optimize Manifest for Xiaomi Pad 7
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
-          
-          # قفل حالت افقی و تمام‌صفحه
+          # تنظیم حالت افقی و شتاب‌دهنده
           sed -i 's/android:name=".MainActivity"/android:name=".MainActivity" android:screenOrientation="sensorLandscape" android:hardwareAccelerated="true" android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode" android:resizeableActivity="true"/g' "$MANIFEST"
-
-          # افزودن مجوزها
-          PERMS='<uses-permission android:name="android.permission.INTERNET" />\n<uses-permission android:name="android.permission.RECORD_AUDIO" />\n<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n<uses-permission android:name="android.permission.CAMERA" />\n<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n<uses-feature android:name="android.hardware.camera" android:required="false" />\n<uses-feature android:name="android.hardware.microphone" android:required="false" />'
+          
+          # افزودن دسترسی‌ها
+          PERMS='<uses-permission android:name="android.permission.INTERNET" />\n<uses-permission android:name="android.permission.RECORD_AUDIO" />\n<uses-permission android:name="android.permission.CAMERA" />'
           sed -i "s|<application|$PERMS\n<application android:usesCleartextTraffic=\"true\" android:hardwareAccelerated=\"true\"|g" "$MANIFEST"
 
-          # تنظیم MainActivity برای مجوزها و Immersive Mode
-          MAIN_ACT=$(find android/app/src/main/java -name "MainActivity.java" | head -n 1)
-          if [ -n "$MAIN_ACT" ]; then
-            cat << 'EOF' > "$MAIN_ACT"
-          package com.okyo.duckai;
-          import android.Manifest;
-          import android.content.pm.PackageManager;
-          import android.os.Build;
-          import android.os.Bundle;
-          import android.view.View;
-          import android.view.WindowManager;
-          import android.webkit.PermissionRequest;
-          import android.webkit.WebChromeClient;
-          import android.webkit.WebSettings;
-          import androidx.core.app.ActivityCompat;
-          import androidx.core.content.ContextCompat;
-          import com.getcapacitor.BridgeActivity;
-          import java.util.ArrayList;
-          import java.util.List;
-
-          public class MainActivity extends BridgeActivity {
-              @Override
-              public void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-                  getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                  hideSystemUI();
-                  requestTabletPermissions();
-
-                  if (this.bridge != null && this.bridge.getWebView() != null) {
-                      WebSettings ws = this.bridge.getWebView().getSettings();
-                      ws.setJavaScriptEnabled(true);
-                      ws.setDomStorageEnabled(true);
-                      ws.setMediaPlaybackRequiresUserGesture(false);
-                      ws.setAllowFileAccess(true);
-                      ws.setAllowContentAccess(true);
-
-                      this.bridge.getWebView().setWebChromeClient(new WebChromeClient() {
-                          @Override
-                          public void onPermissionRequest(final PermissionRequest request) {
-                              request.grant(request.getResources());
-                          }
-                      });
-                  }
-              }
-
-              private void requestTabletPermissions() {
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                      String[] perms = { Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA };
-                      List<String> needed = new ArrayList<>();
-                      for (String p : perms) {
-                          if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
-                              needed.add(p);
-                          }
-                      }
-                      if (!needed.isEmpty()) {
-                          ActivityCompat.requestPermissions(this, needed.toArray(new String[0]), 100);
-                      }
-                  }
-              }
-
-              @Override
-              public void onWindowFocusChanged(boolean hasFocus) {
-                  super.onWindowFocusChanged(hasFocus);
-                  if (hasFocus) hideSystemUI();
-              }
-
-              private void hideSystemUI() {
-                  getWindow().getDecorView().setSystemUiVisibility(
-                      View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                      | View.SYSTEM_UI_FLAG_FULLSCREEN
-                      | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                      | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                      | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                      | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                  );
-              }
-          }
-          EOF
-          fi
-
-      - name: 7. Compile APK
-        working-directory: ./android
+      - name: Compile APK
         run: |
+          cd android
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      - name: 8. Upload Artifact APK
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: DuckAi-XiaomiPad7-Installable
           path: android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
