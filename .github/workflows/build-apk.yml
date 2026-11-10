@@ -63,13 +63,11 @@ jobs:
           tree = ET.parse(path)
           root = tree.getroot()
           
-          # تنظیم ویژگی‌های اپلیکیشن
           app = root.find("application")
           if app is not None:
               app.set("{http://schemas.android.com/apk/res/android}usesCleartextTraffic", "true")
               app.set("{http://schemas.android.com/apk/res/android}hardwareAccelerated", "true")
               
-          # تنظیم حالت افقی برای اکتیویتی‌ها
           for activity in root.findall(".//activity"):
               activity.set("{http://schemas.android.com/apk/res/android}screenOrientation", "sensorLandscape")
               activity.set("{http://schemas.android.com/apk/res/android}configChanges", "orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode")
@@ -85,4 +83,7 @@ jobs:
           ./gradlew assembleDebug
 
       - name: Upload APK Artifact
-        uses: actions/upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: DuckAi-XiaomiPad7-Installable
+          path: android/app/build/outputs/apk/debug/app-debug.apk
