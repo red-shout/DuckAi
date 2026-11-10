@@ -1,4 +1,4 @@
-name: Smart Build DuckAi APK (Xiaomi Pad 7 Edition)
+name: Smart Build DuckAi APK (Xiaomi Pad 7 Fixed)
 
 on:
   push:
@@ -13,10 +13,10 @@ jobs:
       - name: 1. Checkout Code
         uses: actions/checkout@v4
 
-      - name: 2. Set up JDK 17
+      - name: 2. Set up JDK 21 (Required for Latest Android Gradle & Capacitor)
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: 3. Set up Android SDK
@@ -27,65 +27,60 @@ jobs:
         with:
           node-version: 20
 
-      - name: 5. Auto-Detect & Build Project
+      - name: 5. Prepare Web Assets Safely
         run: |
-          echo "🔍 در حال تشخیص هوشمند ساختار پروژه DuckAi..."
+          mkdir -p /tmp/www_final
           
-          # حالت ۱: اگر پروژه از قبل پوشه اندروید یا Gradle دارد
-          if [ -f "gradlew" ] || [ -f "android/gradlew" ]; then
-            echo "✅ پروژه دارای ساختار بومی اندروید است."
-            if [ -f "package.json" ]; then npm install && npm run build || true; fi
-            exit 0
-          fi
-
-          # حالت ۲: پروژه وب است (React, Vite, Next.js, Vue یا HTML/JS)
-          mkdir -p www_final
+          # اگر پروژه package.json دارد، تلاش برای بیلد
           if [ -f "package.json" ]; then
-            echo "📦 نصب پکیج‌های Node.js..."
-            npm install --legacy-peer-deps || npm install --force
-            
-            # تنظیم مسیر نسبی برای جلوگیری از صفحه سفید در اندروید
+            npm install --legacy-peer-deps || npm install --force || true
             export PUBLIC_URL="."
             npm run build -- --base=./ || npm run build || true
           fi
 
-          # پیدا کردن فایل‌های خروجی ساخته شده
-          if [ -d "dist" ]; then cp -r dist/* www_final/;
-          elif [ -d "build" ]; then cp -r build/* www_final/;
-          elif [ -d "out" ]; then cp -r out/* www_final/;
+          # کپی فایل‌های خروجی به پوشه امن
+          if [ -d "dist" ] && [ "$(ls -A dist)" ]; then cp -r dist/* /tmp/www_final/;
+          elif [ -d "build" ] && [ "$(ls -A build)" ]; then cp -r build/* /tmp/www_final/;
+          elif [ -d "out" ] && [ "$(ls -A out)" ]; then cp -r out/* /tmp/www_final/;
           elif [ -f "index.html" ]; then
-            rsync -av --exclude='node_modules' --exclude='.git' --exclude='www_final' ./ www_final/
+            rsync -av --exclude='node_modules' --exclude='.git' --exclude='.github' ./ /tmp/www_final/
           else
-            # اگر فایل index.html در زیرپوشه‌ها بود
             FOUND_INDEX=$(find . -maxdepth 3 -name "index.html" | head -n 1)
             if [ -n "$FOUND_INDEX" ]; then
-              cp -r $(dirname "$FOUND_INDEX")/* www_final/
-            else
-              echo "<!DOCTYPE html><html dir='rtl'><body style='background:#111;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;'><h2>پروژه DuckAi آماده است</h2></body></html>" > www_final/index.html
+              cp -r $(dirname "$FOUND_INDEX")/* /tmp/www_final/
             fi
           fi
 
-          # تبدیل به پروژه اندروید با Capacitor
-          npm init -y || true
-          npm install @capacitor/core @capacitor/cli @capacitor/android
-          npx cap init "DuckAi" "com.okyo.duckai" --web-dir www_final
+          # تضمین وجود index.html برای جلوگیری از خطای Capacitor
+          if [ ! -f "/tmp/www_final/index.html" ]; then
+            echo "<!DOCTYPE html><html dir='rtl'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'></head><body style='background:#121212;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:sans-serif;'><h2>DuckAi Ready on Xiaomi Pad 7</h2></body></html>" > /tmp/www_final/index.html
+          fi
+
+      - name: 6. Create Isolated Android Wrapper
+        run: |
+          mkdir -p cap_builder
+          cd cap_builder
+          cp -r /tmp/www_final ./www
+          
+          npm init -y
+          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          npx cap init "DuckAi" "com.okyo.duckai" --web-dir www
           npx cap add android
 
-      - name: 6. Optimize for Xiaomi Pad 7 (Landscape, Hardware & Auto-Permissions)
+      - name: 7. Configure Xiaomi Pad 7 (Landscape, Fullscreen & Auto-Permissions)
+        working-directory: ./cap_builder
         run: |
-          MANIFEST=$(find . -path "*/src/main/AndroidManifest.xml" | head -n 1)
-          if [ -z "$MANIFEST" ]; then exit 0; fi
-          echo "⚙️ اعمال تنظیمات اختصاصی شیائومی پد ۷ روی: $MANIFEST"
-
-          # ۱. افقی کردن دوطرفه (sensorLandscape)، شتاب‌دهنده سخت‌افزاری و تطبیق با نسبت 3:2
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          
+          # قفل حالت افقی دوطرفه (sensorLandscape) و تمام‌صفحه
           sed -i 's/android:name=".MainActivity"/android:name=".MainActivity" android:screenOrientation="sensorLandscape" android:hardwareAccelerated="true" android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode" android:resizeableActivity="true"/g' "$MANIFEST"
 
-          # ۲. تزریق مجوزهای سخت‌افزاری (میکروفون، دوربین، فایل، اینترنت بدون محدودیت)
+          # افزودن مجوزهای میکروفون، دوربین، فایل و اینترنت
           PERMS='<uses-permission android:name="android.permission.INTERNET" />\n<uses-permission android:name="android.permission.RECORD_AUDIO" />\n<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n<uses-permission android:name="android.permission.CAMERA" />\n<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />\n<uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />\n<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />\n<uses-feature android:name="android.hardware.camera" android:required="false" />\n<uses-feature android:name="android.hardware.microphone" android:required="false" />'
           sed -i "s|<application|$PERMS\n<application android:usesCleartextTraffic=\"true\" android:hardwareAccelerated=\"true\"|g" "$MANIFEST"
 
-          # ۳. کدنویسی جاوا برای درخواست خودکار مجوزها در بدو ورود + تمام‌صفحه واقعی
-          MAIN_ACT=$(find . -name "MainActivity.java" | head -n 1)
+          # تنظیم MainActivity برای درخواست خودکار مجوزها و حالت Immersive
+          MAIN_ACT=$(find android/app/src/main/java -name "MainActivity.java" | head -n 1)
           if [ -n "$MAIN_ACT" ]; then
             cat << 'EOF' > "$MAIN_ACT"
           package com.okyo.duckai;
@@ -108,19 +103,15 @@ jobs:
               @Override
               public void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
-
-                  // روشن ماندن دائمی صفحه تبلت و حالت تمام‌صفحه بدون نوارهای مزاحم
                   getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                   hideSystemUI();
-
-                  // درخواست خودکار دسترسی میکروفون و دوربین روی تبلت در اولین اجرا
                   requestTabletPermissions();
 
                   if (this.bridge != null && this.bridge.getWebView() != null) {
                       WebSettings ws = this.bridge.getWebView().getSettings();
                       ws.setJavaScriptEnabled(true);
                       ws.setDomStorageEnabled(true);
-                      ws.setMediaPlaybackRequiresUserGesture(false); // پخش خودکار صدا و پاسخ‌های صوتی هوش مصنوعی
+                      ws.setMediaPlaybackRequiresUserGesture(false);
                       ws.setAllowFileAccess(true);
                       ws.setAllowContentAccess(true);
 
@@ -135,18 +126,15 @@ jobs:
 
               private void requestTabletPermissions() {
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                      String[] perms = {
-                          Manifest.permission.RECORD_AUDIO,
-                          Manifest.permission.CAMERA
-                      };
-                      List<String> listPermissionsNeeded = new ArrayList<>();
+                      String[] perms = { Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA };
+                      List<String> needed = new ArrayList<>();
                       for (String p : perms) {
                           if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
-                              listPermissionsNeeded.add(p);
+                              needed.add(p);
                           }
                       }
-                      if (!listPermissionsNeeded.isEmpty()) {
-                          ActivityCompat.requestPermissions(this, listPermissionsNeeded.toArray(new String[0]), 100);
+                      if (!needed.isEmpty()) {
+                          ActivityCompat.requestPermissions(this, needed.toArray(new String[0]), 100);
                       }
                   }
               }
@@ -171,14 +159,14 @@ jobs:
           EOF
           fi
 
-      - name: 7. Compile APK
+      - name: 8. Compile APK
+        working-directory: ./cap_builder/android
         run: |
-          if [ -d "android" ]; then cd android; fi
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      - name: 8. Upload Ready APK
+      - name: 9. Upload Ready APK
         uses: actions/upload-artifact@v4
         with:
           name: DuckAi-XiaomiPad7-Installable
-          path: "**/build/outputs/apk/debug/*.apk"
+          path: cap_builder/android/app/build/outputs/apk/debug/app-debug.apk
