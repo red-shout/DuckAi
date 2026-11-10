@@ -26,14 +26,12 @@ jobs:
 
       - name: Build Web & Create Android App
         run: |
-          # 1. بیلد پروژه وب
           if [ -f "package.json" ]; then
             npm install --legacy-peer-deps || npm install --force || true
             export PUBLIC_URL="."
             npm run build -- --base=./ || npm run build || true
           fi
 
-          # 2. آماده‌سازی پوشه وب
           mkdir -p www_folder
           if [ -d "dist" ] && [ "$(ls -A dist)" ]; then cp -r dist/* www_folder/;
           elif [ -d "build" ] && [ "$(ls -A build)" ]; then cp -r build/* www_folder/;
@@ -51,7 +49,6 @@ jobs:
             echo "<!DOCTYPE html><html dir='rtl'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'></head><body style='background:#121212;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:sans-serif;'><h2>DuckAi Ready</h2></body></html>" > www_folder/index.html
           fi
 
-          # 3. ساختار اندروید با کاپاسیتور
           npm init -y || true
           npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
           npx cap init "DuckAi" "com.okyo.duckai" --web-dir www_folder
@@ -59,42 +56,26 @@ jobs:
 
       - name: Safe Configure Xiaomi Pad 7 Settings
         run: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          
-          # تنظیم حالت افقی تبلت در فایل پیکربندی اصلی اندروید (res/values/strings.xml یا مشابه یا مستقیماً در Manifest)
           python3 -c '
           import xml.etree.ElementTree as ET
+          path = "android/app/src/main/AndroidManifest.xml"
           ET.register_namespace("android", "http://schemas.android.com/apk/res/android")
-          tree = ET.parse("android/app/src/main/AndroidManifest.xml")
+          tree = ET.parse(path)
           root = tree.getroot()
           
-          # افزودن اینترنت و مجوزها به شکلی کاملا استاندارد
-          ns = {"android": "http://schemas.android.com/apk/res/android"}
-          
-          perms = [
-              "android.permission.INTERNET",
-              "android.permission.RECORD_AUDIO",
-              "android.permission.CAMERA",
-              "android.permission.MODIFY_AUDIO_SETTINGS"
-          ]
-          for p in perms:
-              if not root.findall(f".//uses-permission[@{{http://schemas.android.com/apk/res/android}}name='{p}']"):
-                up = ET.Element("uses-permission", {"{http://schemas.android.com/apk/res/android}name": p})
-                root.insert(0, up)
-                
-          # تنظیمات اپلیکیشن
+          # تنظیم ویژگی‌های اپلیکیشن
           app = root.find("application")
           if app is not None:
               app.set("{http://schemas.android.com/apk/res/android}usesCleartextTraffic", "true")
               app.set("{http://schemas.android.com/apk/res/android}hardwareAccelerated", "true")
               
-          # تنظیم اکتیویتی برای حالت افقی
+          # تنظیم حالت افقی برای اکتیویتی‌ها
           for activity in root.findall(".//activity"):
               activity.set("{http://schemas.android.com/apk/res/android}screenOrientation", "sensorLandscape")
               activity.set("{http://schemas.android.com/apk/res/android}configChanges", "orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode")
               activity.set("{http://schemas.android.com/apk/res/android}resizeableActivity", "true")
               
-          tree.write("android/app/src/main/AndroidManifest.xml", encoding="utf-8", xml_declaration=True)
+          tree.write(path, encoding="utf-8", xml_declaration=True)
           '
 
       - name: Compile APK
@@ -104,7 +85,5 @@ jobs:
           ./gradlew assembleDebug
 
       - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: DuckAi-XiaomiPad7-Installable
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+        uses: actions/upload
+        
