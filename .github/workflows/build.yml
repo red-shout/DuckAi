@@ -12,27 +12,27 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Set up Java JDK
+      - name: Set up Java JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '17'
+          java-version: '21'
 
-      - name: Prepare Web Directory
+      - name: Prepare Web Assets
         run: |
           mkdir -p www
+          # کپی فایل‌های اصلی وب در پوشه www
           find . -maxdepth 1 -type f \( -name "*.html" -o -name "*.js" -o -name "*.json" -o -name "*.css" \) -exec cp {} www/ \;
           ls -la www/
 
-      - name: Install Capacitor & Build Android
+      - name: Setup Capacitor and Android Platform
         run: |
-          npm init -y
-          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest
+          npm install @capacitor/core @capacitor/cli @capacitor/android
           npx cap init "DuckAi" "tech.okyo.duckai" --web-dir "www"
           npx cap add android
           npx cap sync
